@@ -224,11 +224,11 @@ btnEnviar.addEventListener('click', () => {
   const outrasColunas = {}; // { conta: { col: [val1, val2, ...] } }
   let count = 0;
 
-  dadosOriginais.forEach(row => {
-    const conta = String(row[colC] || '').trim();
+  dadosOriginais.forEach((row, idx) => {
+    const conta = String(row[colC] ?? '').trim();
     if (!conta) return;
 
-    let v = String(row[colV] || '').trim();
+    let v = String(row[colV] ?? '').trim();
     v = v.replace(/R\$\s?/g, '').replace(/\s/g, '');
     if (v.includes(',') && v.includes('.')) {
       v = v.replace(/\./g, '').replace(',', '.');
@@ -246,7 +246,8 @@ btnEnviar.addEventListener('click', () => {
     if (!outrasColunas[conta]) outrasColunas[conta] = {};
     colunasOriginais.forEach(c => {
       if (c === colC || c === colV) return;
-      const val = String(row[c] || '').trim();
+      const raw = row[c];
+      const val = (raw !== null && raw !== undefined) ? String(raw).trim() : '';
       if (!val) return;
       if (!outrasColunas[conta][c]) outrasColunas[conta][c] = [];
       if (!outrasColunas[conta][c].includes(val)) {
@@ -254,6 +255,11 @@ btnEnviar.addEventListener('click', () => {
       }
     });
   });
+
+  // Debug: mostra no console o que foi coletado
+  console.log('Colunas originais:', colunasOriginais);
+  console.log('Dados originais (primeira linha):', dadosOriginais[0]);
+  console.log('Outras colunas coletadas:', outrasColunas);
 
   if (!count) {
     erro.textContent = 'Nenhum valor válido encontrado. Verifique as colunas.';
