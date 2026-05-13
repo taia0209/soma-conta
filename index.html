@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soma por Conta</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 2rem 1rem;
+  }
+  h1 { font-size: 2rem; margin-bottom: .5rem; color: #38bdf8; }
+  .sub { color: #94a3b8; margin-bottom: 2rem; font-size: .95rem; }
+  .card {
+    background: #1e293b; border-radius: 16px; padding: 2rem;
+    width: 100%; max-width: 700px; box-shadow: 0 4px 24px rgba(0,0,0,.4);
+  }
+  .drop-zone {
+    border: 2px dashed #475569; border-radius: 12px; padding: 3rem 1rem;
+    text-align: center; cursor: pointer; transition: all .2s;
+    color: #94a3b8; position: relative;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: #38bdf8; background: rgba(56,189,248,.05); color: #38bdf8;
+  }
+  .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-zone .icon { font-size: 3rem; margin-bottom: .5rem; }
+  .drop-zone p { font-size: .95rem; }
+  .drop-zone .formats { font-size: .8rem; color: #64748b; margin-top: .5rem; }
+
+  .config {
+    display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;
+  }
+  .config label {
+    flex: 1; min-width: 200px; font-size: .85rem; color: #94a3b8;
+  }
+  .config select, .config input {
+    width: 100%; padding: .6rem .8rem; margin-top: .3rem;
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+    color: #e2e8f0; font-size: .9rem; outline: none;
+  }
+  .config select:focus, .config input:focus { border-color: #38bdf8; }
+
+  .btn {
+    display: inline-block; margin-top: 1.5rem; padding: .8rem 2rem;
+    background: #38bdf8; color: #0f172a; border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s;
+    width: 100%;
+  }
+  .btn:hover { background: #7dd3fc; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.secondary {
+    background: #334155; color: #e2e8f0; margin-top: .8rem;
+  }
+  .btn.secondary:hover { background: #475569; }
+
+  .result { margin-top: 2rem; display: none; }
+  .result.show { display: block; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { padding: .7rem 1rem; text-align: left; border-bottom: 1px solid #334155; }
+  th { color: #94a3b8; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+  td.valor { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 700; color: #38bdf8; border-top: 2px solid #38bdf8; font-size: 1.05rem; }
+  tr:nth-child(even) { background: rgba(255,255,255,.02); }
+
+  .info { color: #94a3b8; font-size: .85rem; margin-top: 1rem; }
+  .erro { color: #f87171; margin-top: 1rem; font-size: .9rem; }
+  .ok { color: #4ade80; margin-top: 1rem; font-size: .9rem; }
+
+  footer { margin-top: 3rem; color: #475569; font-size: .8rem; }
+</style>
+</head>
+<body>
+  <h1>📊 Soma por Conta</h1>
+  <p class="sub">Envie sua planilha CSV ou XLSX — processa tudo no navegador</p>
+
+  <div class="card">
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+      <div class="icon">📁</div>
+      <p>Arraste o arquivo aqui ou <strong>clique para selecionar</strong></p>
+      <p class="formats">CSV, XLSX</p>
+    </div>
+
+    <div class="config">
+      <label>Coluna da Conta
+        <select id="colConta"><option value="">Selecione um arquivo primeiro</option></select>
+      </label>
+      <label>Coluna do Valor
+        <select id="colValor"><option value="">Selecione um arquivo primeiro</option></select>
+      </label>
+    </div>
+
+    <button class="btn" id="btnEnviar" disabled>📊 Somar por Conta</button>
+    <button class="btn secondary" id="btnExport" style="display:none">⬇️ Exportar CSV</button>
+
+    <div class="erro" id="erro"></div>
+    <div class="ok" id="ok"></div>
+
+    <div class="result" id="result">
+      <h3 style="color:#38bdf8; margin-bottom:.3rem">Resultado</h3>
+      <p class="info" id="infoArquivo"></p>
+      <table>
+        <thead><tr><th>Conta</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>Soma por Conta — 100% no navegador, sem servidor</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const btnEnviar = document.getElementById('btnEnviar');
+const btnExport = document.getElementById('btnExport');
+const erro = document.getElementById('erro');
+const ok = document.getElementById('ok');
+const result = document.getElementById('result');
+const tbody = document.getElementById('tbody');
+const infoArquivo = document.getElementById('infoArquivo');
+const selConta = document.getElementById('colConta');
+const selValor = document.getElementById('colValor');
+
+let arquivoNome = '';
+let resultadoFinal = [];
+
+// ── Drag & Drop ──
+['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => {
+  ev.preventDefault(); dropZone.classList.add('dragover');
+}));
+['dragleave','drop'].forEach(e => dropZone.addEventListener(e, ev => {
+  ev.preventDefault(); dropZone.classList.remove('dragover');
+}));
+dropZone.addEventListener('drop', ev => {
+  const f = ev.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+// ── Ler arquivo ──
+function handleFile(f) {
+  const ext = f.name.split('.').pop().toLowerCase();
+  if (!['csv','xlsx','xls'].includes(ext)) {
+    erro.textContent = 'Formato não suportado. Use CSV ou XLSX.';
+    return;
+  }
+  erro.textContent = '';
+  ok.textContent = '';
+  result.classList.remove('show');
+  btnExport.style.display = 'none';
+  arquivoNome = f.name;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!json.length) {
+        erro.textContent = 'Planilha vazia!';
+        return;
+      }
+
+      const colunas = Object.keys(json[0]);
+      preencherSelects(colunas);
+      ok.textContent = `✅ ${f.name} carregado — ${json.length} linhas, ${colunas.length} colunas`;
+      btnEnviar.disabled = false;
+
+      // Guarda dados
+      window._dados = json;
+
+    } catch (err) {
+      erro.textContent = 'Erro ao ler arquivo: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(f);
+}
+
+function preencherSelects(colunas) {
+  selConta.innerHTML = '<option value="">— Selecione —</option>';
+  selValor.innerHTML = '<option value="">— Selecione —</option>';
+
+  colunas.forEach(c => {
+    selConta.innerHTML += `<option value="${c}">${c}</option>`;
+    selValor.innerHTML += `<option value="${c}">${c}</option>`;
+  });
+
+  // Auto-detect
+  const lower = colunas.map(c => c.toLowerCase());
+  const contaIdx = lower.findIndex(c =>
+    ['conta','categoria','category','nome','description','descrição','classificação'].includes(c));
+  const valorIdx = lower.findIndex(c =>
+    ['valor','value','amount','total','preço','preco','montante','debito','crédito'].includes(c));
+
+  if (contaIdx >= 0) selConta.value = colunas[contaIdx];
+  if (valorIdx >= 0) selValor.value = colunas[valorIdx];
+}
+
+// ── Processar ──
+btnEnviar.addEventListener('click', () => {
+  const colC = selConta.value;
+  const colV = selValor.value;
+
+  if (!colC || !colV) {
+    erro.textContent = 'Selecione as duas colunas (Conta e Valor).';
+    return;
+  }
+  erro.textContent = '';
+
+  const totais = {};
+  let count = 0;
+
+  window._dados.forEach(row => {
+    const conta = String(row[colC] || '').trim();
+    if (!conta) return;
+
+    let v = String(row[colV] || '').trim();
+    v = v.replace(/R\$\s?/g, '').replace(/\s/g, '');
+    // Formato BR: 1.500,00
+    if (v.includes(',') && v.includes('.')) {
+      v = v.replace(/\./g, '').replace(',', '.');
+    } else if (v.includes(',')) {
+      v = v.replace(',', '.');
+    }
+    const num = parseFloat(v);
+    if (isNaN(num)) return;
+
+    totais[conta] = (totais[conta] || 0) + num;
+    count++;
+  });
+
+  if (!count) {
+    erro.textContent = 'Nenhum valor válido encontrado. Verifique as colunas selecionadas.';
+    return;
+  }
+
+  // Ordena por nome
+  const sorted = Object.entries(totais).sort((a, b) => a[0].localeCompare(b[0]));
+  resultadoFinal = sorted;
+
+  // Renderiza
+  tbody.innerHTML = '';
+  let totalGeral = 0;
+
+  sorted.forEach(([conta, total]) => {
+    totalGeral += total;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${conta}</td><td class="valor">R$ ${fmt(total)}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  const tr = document.createElement('tr');
+  tr.className = 'total';
+  tr.innerHTML = `<td>TOTAL GERAL</td><td class="valor">R$ ${fmt(totalGeral)}</td>`;
+  tbody.appendChild(tr);
+
+  infoArquivo.textContent = `${count} valores somados de ${arquivoNome}`;
+  result.classList.add('show');
+  btnExport.style.display = 'block';
+});
+
+// ── Exportar CSV ──
+btnExport.addEventListener('click', () => {
+  let csv = 'Conta,Total\n';
+  resultadoFinal.forEach(([conta, total]) => {
+    csv += `"${conta}",${total.toFixed(2)}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'soma_por_conta.csv';
+  a.click();
+});
+
+function fmt(n) {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+</script>
+</body>
+</html>
