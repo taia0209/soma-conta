@@ -37,12 +37,12 @@
   .config label {
     flex: 1; min-width: 200px; font-size: .85rem; color: #94a3b8;
   }
-  .config select, .config input {
+  .config select {
     width: 100%; padding: .6rem .8rem; margin-top: .3rem;
     background: #0f172a; border: 1px solid #334155; border-radius: 8px;
     color: #e2e8f0; font-size: .9rem; outline: none;
   }
-  .config select:focus, .config input:focus { border-color: #38bdf8; }
+  .config select:focus { border-color: #38bdf8; }
 
   .btn {
     display: inline-block; margin-top: 1.5rem; padding: .8rem 2rem;
@@ -76,7 +76,7 @@
 </head>
 <body>
   <h1>📊 Soma por Conta</h1>
-  <p class="sub">Envie sua planilha CSV ou XLSX — processa tudo no navegador</p>
+  <p class="sub">Envie sua planilha — retorna com as mesmas colunas, conta em texto</p>
 
   <div class="card">
     <div class="drop-zone" id="dropZone">
@@ -95,40 +95,43 @@
       </label>
     </div>
 
-    <button class="btn" id="btnEnviar" disabled>📊 Somar por Conta</button>
-    <button class="btn secondary" id="btnExport" style="display:none">⬇️ Exportar CSV</button>
+    <button class="btn" id="btnEnviar" disabled>📊 Somar e Gerar Planilha</button>
+    <button class="btn secondary" id="btnExportXlsx" style="display:none">⬇️ Baixar Planilha (.xlsx)</button>
 
     <div class="erro" id="erro"></div>
     <div class="ok" id="ok"></div>
 
     <div class="result" id="result">
-      <h3 style="color:#38bdf8; margin-bottom:.3rem">Resultado</h3>
+      <h3 style="color:#38bdf8; margin-bottom:.3rem">Prévia</h3>
       <p class="info" id="infoArquivo"></p>
       <table>
-        <thead><tr><th>Conta</th><th style="text-align:right">Total</th></tr></thead>
+        <thead id="thead"></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
   </div>
 
-  <footer>Soma por Conta — 100% no navegador, sem servidor</footer>
+  <footer>Soma por Conta — 100% no navegador</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const btnEnviar = document.getElementById('btnEnviar');
-const btnExport = document.getElementById('btnExport');
+const btnExportXlsx = document.getElementById('btnExportXlsx');
 const erro = document.getElementById('erro');
 const ok = document.getElementById('ok');
 const result = document.getElementById('result');
+const thead = document.getElementById('thead');
 const tbody = document.getElementById('tbody');
 const infoArquivo = document.getElementById('infoArquivo');
 const selConta = document.getElementById('colConta');
 const selValor = document.getElementById('colValor');
 
 let arquivoNome = '';
-let resultadoFinal = [];
+let dadosOriginais = [];
+let colunasOriginais = [];
+let workbookOriginal = null;
 
 // ── Drag & Drop ──
 ['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => {
@@ -155,15 +158,15 @@ function handleFile(f) {
   erro.textContent = '';
   ok.textContent = '';
   result.classList.remove('show');
-  btnExport.style.display = 'none';
+  btnExportXlsx.style.display = 'none';
   arquivoNome = f.name;
 
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      workbookOriginal = XLSX.read(data, { type: 'array' });
+      const ws = workbookOriginal.Sheets[workbookOriginal.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
       if (!json.length) {
@@ -171,13 +174,11 @@ function handleFile(f) {
         return;
       }
 
-      const colunas = Object.keys(json[0]);
-      preencherSelects(colunas);
-      ok.textContent = `✅ ${f.name} carregado — ${json.length} linhas, ${colunas.length} colunas`;
+      colunasOriginais = Object.keys(json[0]);
+      dadosOriginais = json;
+      preencherSelects(colunasOriginais);
+      ok.textContent = `✅ ${f.name} carregado — ${json.length} linhas, ${colunasOriginais.length} colunas`;
       btnEnviar.disabled = false;
-
-      // Guarda dados
-      window._dados = json;
 
     } catch (err) {
       erro.textContent = 'Erro ao ler arquivo: ' + err.message;
@@ -217,16 +218,16 @@ btnEnviar.addEventListener('click', () => {
   }
   erro.textContent = '';
 
+  // Agrupa e soma
   const totais = {};
   let count = 0;
 
-  window._dados.forEach(row => {
+  dadosOriginais.forEach(row => {
     const conta = String(row[colC] || '').trim();
     if (!conta) return;
 
     let v = String(row[colV] || '').trim();
     v = v.replace(/R\$\s?/g, '').replace(/\s/g, '');
-    // Formato BR: 1.500,00
     if (v.includes(',') && v.includes('.')) {
       v = v.replace(/\./g, '').replace(',', '.');
     } else if (v.includes(',')) {
@@ -240,51 +241,108 @@ btnEnviar.addEventListener('click', () => {
   });
 
   if (!count) {
-    erro.textContent = 'Nenhum valor válido encontrado. Verifique as colunas selecionadas.';
+    erro.textContent = 'Nenhum valor válido encontrado. Verifique as colunas.';
     return;
   }
 
-  // Ordena por nome
+  // Monta resultado com as mesmas colunas da planilha original
+  const resultadoLinhas = [];
   const sorted = Object.entries(totais).sort((a, b) => a[0].localeCompare(b[0]));
-  resultadoFinal = sorted;
-
-  // Renderiza
-  tbody.innerHTML = '';
-  let totalGeral = 0;
 
   sorted.forEach(([conta, total]) => {
-    totalGeral += total;
+    const linha = {};
+    colunasOriginais.forEach(c => {
+      if (c === colC) {
+        linha[c] = conta; // texto
+      } else if (c === colV) {
+        linha[c] = Math.round(total * 100) / 100; // número
+      } else {
+        linha[c] = ''; // outras colunas vazias
+      }
+    });
+    resultadoLinhas.push(linha);
+  });
+
+  // ── Prévia na tela ──
+  thead.innerHTML = '<tr>' + colunasOriginais.map(c =>
+    `<th>${c}</th>`).join('') + '</tr>';
+  tbody.innerHTML = '';
+
+  resultadoLinhas.forEach(row => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${conta}</td><td class="valor">R$ ${fmt(total)}</td>`;
+    colunasOriginais.forEach(c => {
+      const td = document.createElement('td');
+      const val = row[c];
+      if (c === colV && typeof val === 'number') {
+        td.className = 'valor';
+        td.textContent = 'R$ ' + val.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+      } else {
+        td.textContent = val;
+      }
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
 
-  const tr = document.createElement('tr');
-  tr.className = 'total';
-  tr.innerHTML = `<td>TOTAL GERAL</td><td class="valor">R$ ${fmt(totalGeral)}</td>`;
-  tbody.appendChild(tr);
-
-  infoArquivo.textContent = `${count} valores somados de ${arquivoNome}`;
-  result.classList.add('show');
-  btnExport.style.display = 'block';
-});
-
-// ── Exportar CSV ──
-btnExport.addEventListener('click', () => {
-  let csv = 'Conta,Total\n';
-  resultadoFinal.forEach(([conta, total]) => {
-    csv += `"${conta}",${total.toFixed(2)}\n`;
+  // Linha do total geral
+  const trTotal = document.createElement('tr');
+  trTotal.className = 'total';
+  colunasOriginais.forEach(c => {
+    const td = document.createElement('td');
+    if (c === colC) {
+      td.textContent = 'TOTAL GERAL';
+    } else if (c === colV) {
+      td.className = 'valor';
+      const totalGeral = sorted.reduce((s, [, v]) => s + v, 0);
+      td.textContent = 'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    }
+    trTotal.appendChild(td);
   });
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'soma_por_conta.csv';
-  a.click();
+  tbody.appendChild(trTotal);
+
+  infoArquivo.textContent = `${count} valores somados → ${resultadoLinhas.length} contas`;
+  result.classList.add('show');
+  btnExportXlsx.style.display = 'block';
+
+  // ── Gerar XLSX para download ──
+  window._resultadoLinhas = resultadoLinhas;
+  window._colC = colC;
 });
 
-function fmt(n) {
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// ── Exportar XLSX ──
+btnExportXlsx.addEventListener('click', () => {
+  const linhas = window._resultadoLinhas;
+  const colC = window._colC;
+
+  // Cria worksheet com os dados
+  const ws = XLSX.utils.json_to_sheet(linhas, { skipHeader: false });
+
+  // Força a coluna de conta como texto (t)
+  const colIdx = colunasOriginais.indexOf(colC);
+  const colLetter = XLSX.utils.encode_col(colIdx);
+
+  // Marca todas as células da coluna de conta como texto
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = range.s.r + 1; r <= range.e.r; r++) {
+    const addr = colLetter + (r + 1);
+    if (ws[addr]) {
+      ws[addr].t = 's'; // tipo string
+      ws[addr].z = '@'; // formato texto
+    }
+  }
+
+  // Ajusta largura das colunas
+  ws['!cols'] = colunasOriginais.map(c => ({
+    wch: Math.max(c.length + 2, c === colC ? 20 : 15)
+  }));
+
+  // Cria workbook e baixa
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Soma por Conta');
+
+  const nomeBase = arquivoNome.replace(/\.[^.]+$/, '') || 'planilha';
+  XLSX.writeFile(wb, `${nomeBase}_soma.xlsx`);
+});
 </script>
 </body>
 </html>
