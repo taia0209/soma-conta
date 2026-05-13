@@ -218,9 +218,10 @@ btnEnviar.addEventListener('click', () => {
   }
   erro.textContent = '';
 
-  // Agrupa e soma, contando linhas por conta
+  // Agrupa e soma, contando linhas por conta e juntando info das outras colunas
   const totais = {};
   const contagem = {};
+  const outrasColunas = {}; // { conta: { col: [val1, val2, ...] } }
   let count = 0;
 
   dadosOriginais.forEach(row => {
@@ -240,6 +241,18 @@ btnEnviar.addEventListener('click', () => {
     totais[conta] = (totais[conta] || 0) + num;
     contagem[conta] = (contagem[conta] || 0) + 1;
     count++;
+
+    // Junta valores das outras colunas
+    if (!outrasColunas[conta]) outrasColunas[conta] = {};
+    colunasOriginais.forEach(c => {
+      if (c === colC || c === colV) return;
+      const val = String(row[c] || '').trim();
+      if (!val) return;
+      if (!outrasColunas[conta][c]) outrasColunas[conta][c] = [];
+      if (!outrasColunas[conta][c].includes(val)) {
+        outrasColunas[conta][c].push(val);
+      }
+    });
   });
 
   if (!count) {
@@ -260,6 +273,9 @@ btnEnviar.addEventListener('click', () => {
         linha[c] = conta;
       } else if (c === colV) {
         linha[c] = Math.round(total * 100) / 100;
+      } else if (outrasColunas[conta] && outrasColunas[conta][c]) {
+        // Junta os valores com " | " quando tem mais de um
+        linha[c] = outrasColunas[conta][c].join(' | ');
       } else {
         linha[c] = '';
       }
