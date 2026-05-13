@@ -218,8 +218,9 @@ btnEnviar.addEventListener('click', () => {
   }
   erro.textContent = '';
 
-  // Agrupa e soma
+  // Agrupa e soma, contando linhas por conta
   const totais = {};
+  const contagem = {};
   let count = 0;
 
   dadosOriginais.forEach(row => {
@@ -237,6 +238,7 @@ btnEnviar.addEventListener('click', () => {
     if (isNaN(num)) return;
 
     totais[conta] = (totais[conta] || 0) + num;
+    contagem[conta] = (contagem[conta] || 0) + 1;
     count++;
   });
 
@@ -245,7 +247,9 @@ btnEnviar.addEventListener('click', () => {
     return;
   }
 
-  // Monta resultado com as mesmas colunas da planilha original
+  // Monta resultado com as mesmas colunas + coluna de linhas juntadas
+  const colLinhas = 'Linhas Juntadas';
+  const todasColunas = [...colunasOriginais, colLinhas];
   const resultadoLinhas = [];
   const sorted = Object.entries(totais).sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -253,29 +257,33 @@ btnEnviar.addEventListener('click', () => {
     const linha = {};
     colunasOriginais.forEach(c => {
       if (c === colC) {
-        linha[c] = conta; // texto
+        linha[c] = conta;
       } else if (c === colV) {
-        linha[c] = Math.round(total * 100) / 100; // número
+        linha[c] = Math.round(total * 100) / 100;
       } else {
-        linha[c] = ''; // outras colunas vazias
+        linha[c] = '';
       }
     });
+    linha[colLinhas] = contagem[conta];
     resultadoLinhas.push(linha);
   });
 
   // ── Prévia na tela ──
-  thead.innerHTML = '<tr>' + colunasOriginais.map(c =>
+  thead.innerHTML = '<tr>' + todasColunas.map(c =>
     `<th>${c}</th>`).join('') + '</tr>';
   tbody.innerHTML = '';
 
   resultadoLinhas.forEach(row => {
     const tr = document.createElement('tr');
-    colunasOriginais.forEach(c => {
+    todasColunas.forEach(c => {
       const td = document.createElement('td');
       const val = row[c];
       if (c === colV && typeof val === 'number') {
         td.className = 'valor';
         td.textContent = 'R$ ' + val.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+      } else if (c === colLinhas) {
+        td.style.textAlign = 'center';
+        td.textContent = val;
       } else {
         td.textContent = val;
       }
@@ -285,16 +293,20 @@ btnEnviar.addEventListener('click', () => {
   });
 
   // Linha do total geral
+  const totalGeral = sorted.reduce((s, [, v]) => s + v, 0);
+  const totalLinhas = Object.values(contagem).reduce((s, v) => s + v, 0);
   const trTotal = document.createElement('tr');
   trTotal.className = 'total';
-  colunasOriginais.forEach(c => {
+  todasColunas.forEach(c => {
     const td = document.createElement('td');
     if (c === colC) {
       td.textContent = 'TOTAL GERAL';
     } else if (c === colV) {
       td.className = 'valor';
-      const totalGeral = sorted.reduce((s, [, v]) => s + v, 0);
       td.textContent = 'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    } else if (c === colLinhas) {
+      td.style.textAlign = 'center';
+      td.textContent = totalLinhas;
     }
     trTotal.appendChild(td);
   });
@@ -307,15 +319,17 @@ btnEnviar.addEventListener('click', () => {
   // ── Gerar XLSX para download ──
   window._resultadoLinhas = resultadoLinhas;
   window._colC = colC;
+  window._todasColunas = todasColunas;
 });
 
 // ── Exportar XLSX ──
 btnExportXlsx.addEventListener('click', () => {
-  const linhas = window._resultadoLinhas;
+  const resultadoLinhas = window._resultadoLinhas;
   const colC = window._colC;
+  const todasColunas = window._todasColunas;
 
   // Cria worksheet com os dados
-  const ws = XLSX.utils.json_to_sheet(linhas, { skipHeader: false });
+  const ws = XLSX.utils.json_to_sheet(resultadoLinhas, { skipHeader: false });
 
   // Força a coluna de conta como texto (t)
   const colIdx = colunasOriginais.indexOf(colC);
@@ -332,7 +346,7 @@ btnExportXlsx.addEventListener('click', () => {
   }
 
   // Ajusta largura das colunas
-  ws['!cols'] = colunasOriginais.map(c => ({
+  ws['!cols'] = todasColunas.map(c => ({
     wch: Math.max(c.length + 2, c === colC ? 20 : 15)
   }));
 
