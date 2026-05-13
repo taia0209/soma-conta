@@ -100,6 +100,7 @@
 
     <div class="erro" id="erro"></div>
     <div class="ok" id="ok"></div>
+    <div id="debug" style="display:none; margin-top:1rem; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:1rem; font-size:.8rem; color:#94a3b8; max-height:300px; overflow:auto;"></div>
 
     <div class="result" id="result">
       <h3 style="color:#38bdf8; margin-bottom:.3rem">Prévia</h3>
@@ -127,6 +128,7 @@ const tbody = document.getElementById('tbody');
 const infoArquivo = document.getElementById('infoArquivo');
 const selConta = document.getElementById('colConta');
 const selValor = document.getElementById('colValor');
+const debugDiv = document.getElementById('debug');
 
 let arquivoNome = '';
 let dadosOriginais = [];
@@ -159,29 +161,53 @@ function handleFile(f) {
   ok.textContent = '';
   result.classList.remove('show');
   btnExportXlsx.style.display = 'none';
+  debugDiv.style.display = 'none';
   arquivoNome = f.name;
 
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const data = new Uint8Array(e.target.result);
-      workbookOriginal = XLSX.read(data, { type: 'array' });
+      workbookOriginal = XLSX.read(data, { type: 'array', raw: false, cellText: true });
       const ws = workbookOriginal.Sheets[workbookOriginal.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
-      if (!json.length) {
-        erro.textContent = 'Planilha vazia!';
-        return;
+      // Lê como array para ter controle total
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      if (!rows.length) { erro.textContent = 'Planilha vazia!'; return; }
+
+      // Primeira linha = cabeçalhos
+      const headers = rows[0].map(h => String(h || '').trim());
+      colunasOriginais = headers;
+
+      // Restante = dados
+      dadosOriginais = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const obj = {};
+        let hasData = false;
+        headers.forEach((h, j) => {
+          const val = (row[j] !== null && row[j] !== undefined) ? String(row[j]).trim() : '';
+          obj[h] = val;
+          if (val) hasData = true;
+        });
+        if (hasData) dadosOriginais.push(obj);
       }
 
-      colunasOriginais = Object.keys(json[0]);
-      dadosOriginais = json;
+      // Debug visível
+      debugDiv.style.display = 'block';
+      debugDiv.innerHTML = '<strong style="color:#38bdf8">Debug Info:</strong><br>'
+        + `Colunas (${headers.length}): <strong>${headers.join(', ')}</strong><br>`
+        + `Linhas de dados: ${dadosOriginais.length}<br><br>`
+        + '<strong>Primeira linha:</strong><br><pre style="color:#e2e8f0">'
+        + JSON.stringify(dadosOriginais[0], null, 2) + '</pre>';
+
       preencherSelects(colunasOriginais);
-      ok.textContent = `✅ ${f.name} carregado — ${json.length} linhas, ${colunasOriginais.length} colunas`;
+      ok.textContent = `✅ ${f.name} carregado — ${dadosOriginais.length} linhas, ${colunasOriginais.length} colunas`;
       btnEnviar.disabled = false;
 
     } catch (err) {
       erro.textContent = 'Erro ao ler arquivo: ' + err.message;
+      console.error(err);
     }
   };
   reader.readAsArrayBuffer(f);
@@ -224,7 +250,7 @@ btnEnviar.addEventListener('click', () => {
   const outrasColunas = {}; // { conta: { col: [val1, val2, ...] } }
   let count = 0;
 
-  dadosOriginais.forEach((row, idx) => {
+  dadosOriginais.forEach((row) => {
     const conta = String(row[colC] ?? '').trim();
     if (!conta) return;
 
@@ -246,8 +272,7 @@ btnEnviar.addEventListener('click', () => {
     if (!outrasColunas[conta]) outrasColunas[conta] = {};
     colunasOriginais.forEach(c => {
       if (c === colC || c === colV) return;
-      const raw = row[c];
-      const val = (raw !== null && raw !== undefined) ? String(raw).trim() : '';
+      const val = row[c] ? String(row[c]).trim() : '';
       if (!val) return;
       if (!outrasColunas[conta][c]) outrasColunas[conta][c] = [];
       if (!outrasColunas[conta][c].includes(val)) {
@@ -255,11 +280,6 @@ btnEnviar.addEventListener('click', () => {
       }
     });
   });
-
-  // Debug: mostra no console o que foi coletado
-  console.log('Colunas originais:', colunasOriginais);
-  console.log('Dados originais (primeira linha):', dadosOriginais[0]);
-  console.log('Outras colunas coletadas:', outrasColunas);
 
   if (!count) {
     erro.textContent = 'Nenhum valor válido encontrado. Verifique as colunas.';
